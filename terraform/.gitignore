@@ -1,0 +1,8 @@
+# Terraform state — contains sensitive data, never commit to git
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars          # may contain secret keys
+crash.log
+override.tf
