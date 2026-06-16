@@ -1,0 +1,53 @@
+# ── docker-compose.monitoring.yml ─────────────────────────────────────────
+#
+# Adds Prometheus + Grafana to the existing ticketdesk stack.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --build
+#
+# Then open:
+#   http://localhost:8000        TicketDesk app
+#   http://localhost:8000/metrics Prometheus metrics (raw)
+#   http://localhost:9090        Prometheus UI (query metrics)
+#   http://localhost:3000        Grafana dashboards (admin / admin)
+# ──────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Prometheus ────────────────────────────────────────────────────────
+  # Scrapes /metrics from TicketDesk every 15s and stores time-series data.
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    ports:
+      - "9090:9090"
+    volumes:
+      # Mount our scrape config into the Prometheus container
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Persist Prometheus data so it survives container restarts
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"   # allows hot-reload of config
+    depends_on:
+      - ticketdesk
+    restart: unless-stopped
+
+  # ── Grafana ───────────────────────────────────────────────────────────
+  # Visualises the metrics Prometheus collected.
+  # Default login: admin / admin  (change on first login)
+  grafana:
+    image: grafana/grafana:10.4.3
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

@@ -143,8 +143,8 @@ no shared state, no teardown required.
 - [x] **Phase 1** — Containerised REST API + web console + pytest suite
 - [x] **Phase 2** — GitHub Actions CI (test → Docker build)
 - [x] **Phase 3** — Deployed live → https://ticketdesk-f0l0.onrender.com
-- [ ] **Phase 4** — Terraform IaC for infrastructure provisioning
-- [ ] **Phase 5** — Monitoring: Prometheus metrics endpoint + Grafana dashboard
+- [x] **Phase 4** — Terraform IaC (AWS EC2 + security group — code ready in `terraform/`)
+- [x] **Phase 5** — Monitoring: `/metrics` (Prometheus) + Grafana stack (`docker-compose.monitoring.yml`)
 - [ ] **Phase 6** — Migrate storage to PostgreSQL (single env-var change)
 
 ---

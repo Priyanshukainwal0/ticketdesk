@@ -1,0 +1,15 @@
+# ── prometheus.yml ────────────────────────────────────────────────────────
+# Tells Prometheus WHERE to scrape metrics from and HOW often.
+# This file is mounted into the Prometheus container via docker-compose.
+# ──────────────────────────────────────────────────────────────────────────
+
+global:
+  scrape_interval: 15s      # collect metrics every 15 seconds
+  evaluation_interval: 15s  # evaluate alert rules every 15 seconds
+
+scrape_configs:
+  - job_name: "ticketdesk"
+    # 'ticketdesk' resolves to the service name inside the Docker network
+    static_configs:
+      - targets: ["ticketdesk:8000"]
+    metrics_path: /metrics

@@ -4,6 +4,7 @@ TicketDesk — main FastAPI application.
 Endpoint summary
 ----------------
 GET  /health                    Liveness probe for cloud load-balancers.
+GET  /metrics                   Prometheus metrics (Phase 5 monitoring).
 GET  /                          Serve the single-page web console.
 POST /api/tickets               Create a ticket (status defaults to 'open').
 GET  /api/tickets?status=       List tickets newest-first; optional status filter.
@@ -25,6 +26,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.database import db_conn, init_db
 from app.models import Priority, Status, TicketCreate, TicketOut, TicketUpdate
@@ -62,6 +64,11 @@ app = FastAPI(
 # Serve static assets (CSS, JS, images) at /static/…
 # The web console itself is at "/" via the route below.
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+# ── Prometheus metrics (/metrics) ──────────────────────────────────────────
+# Automatically tracks: request count, latency, in-flight requests per endpoint.
+# Prometheus scrapes this endpoint on a schedule; Grafana reads from Prometheus.
+Instrumentator().instrument(app).expose(app)
 
 
 # ---------------------------------------------------------------------------
