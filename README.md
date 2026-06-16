@@ -1,6 +1,6 @@
 # TicketDesk
 
-[![CI](https://github.com/YOUR_USERNAME/ticketdesk/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/ticketdesk/actions/workflows/ci.yml)
+[![CI](https://github.com/Priyanshukainwal0/ticketdesk/actions/workflows/ci.yml/badge.svg)](https://github.com/Priyanshukainwal0/ticketdesk/actions/workflows/ci.yml)
 
 A lightweight help-desk ticketing system built as a **Cloud / DevOps portfolio centrepiece**.  
 Real app · real deployment target · real CI pipeline.
@@ -176,4 +176,4 @@ ticketdesk/
 
 ---
 
-*Built by Priyanshu Kainwal — [LinkedIn](https://www.linkedin.com/in/priyanshu-kainwal) · [priyanshuror00@gmail.com](mailto:priyanshuror00@gmail.com)*
+*Built by Priyanshu Kainwal — [LinkedIn](https://www.linkedin.com/in/priyanshu-kainwal) · [GitHub](https://github.com/Priyanshukainwal0) · [priyanshuror00@gmail.com](mailto:priyanshuror00@gmail.com)*
