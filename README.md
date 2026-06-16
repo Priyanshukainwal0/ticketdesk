@@ -142,7 +142,7 @@ no shared state, no teardown required.
 
 - [x] **Phase 1** — Containerised REST API + web console + pytest suite
 - [x] **Phase 2** — GitHub Actions CI (test → Docker build)
-- [ ] **Phase 3** — Deploy to free-tier cloud (Render / Railway / Fly.io)
+- [x] **Phase 3** — Deployed live → https://ticketdesk-f0l0.onrender.com
 - [ ] **Phase 4** — Terraform IaC for infrastructure provisioning
 - [ ] **Phase 5** — Monitoring: Prometheus metrics endpoint + Grafana dashboard
 - [ ] **Phase 6** — Migrate storage to PostgreSQL (single env-var change)
