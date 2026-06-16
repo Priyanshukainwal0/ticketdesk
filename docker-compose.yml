@@ -1,0 +1,37 @@
+# ── docker-compose.yml ────────────────────────────────────────────────────
+#
+# Runs TicketDesk with a named volume so the SQLite database survives
+# container restarts and image rebuilds.
+#
+# Usage:
+#   docker compose up --build      # first run / after code changes
+#   docker compose up -d           # start in background
+#   docker compose down            # stop (DB volume is preserved)
+#   docker compose down -v         # stop AND delete the DB volume
+# ──────────────────────────────────────────────────────────────────────────
+
+services:
+  ticketdesk:
+    # Build the image from the Dockerfile in this directory
+    build: .
+
+    # Map host port 8000 → container port 8000
+    ports:
+      - "8000:8000"
+
+    environment:
+      # DB_PATH points inside the named volume mount below.
+      # Changing this value is the only thing needed to switch storage paths.
+      - DB_PATH=/data/ticketdesk.db
+
+    volumes:
+      # Mount the named volume at /data so the SQLite file persists.
+      # To use PostgreSQL later: remove this volume, add a `db` service,
+      # and change DB_PATH to a postgres:// DSN.
+      - ticketdesk_data:/data
+
+    restart: unless-stopped
+
+# Declare the named volume — Docker manages its lifecycle.
+volumes:
+  ticketdesk_data:

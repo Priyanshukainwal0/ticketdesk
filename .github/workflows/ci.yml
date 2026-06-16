@@ -1,0 +1,71 @@
+# ── CI Pipeline — TicketDesk ──────────────────────────────────────────────
+#
+# Runs on every push to main and on every pull request targeting main.
+# Two jobs run sequentially:
+#   1. test  — install deps and run the pytest suite
+#   2. docker — build the Docker image (only if tests passed)
+#
+# Why separate jobs?
+#   Each job runs on a fresh VM.  Keeping build and test apart means:
+#   - A failed test stops the Docker build immediately (fast feedback).
+#   - Docker build logs are clean and don't mix with test output.
+# ──────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── Job 1: Run the test suite ──────────────────────────────────────────
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Set up the exact Python version used in development and in Docker
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # Cache the pip download cache to speed up subsequent runs
+          cache: "pip"
+
+      # Install all project dependencies from the pinned requirements file
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Run pytest with verbose output so failures are easy to read in the log
+      - name: Run tests
+        run: pytest tests/ -v
+
+  # ── Job 2: Build the Docker image ─────────────────────────────────────
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+
+    # This job only starts if the `test` job succeeded.
+    # Prevents publishing a broken image.
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Build the image and tag it with the git commit SHA for traceability.
+      # In Phase 3 (cloud deploy) you would add a `docker push` step here
+      # after authenticating to your registry (ECR, GCR, GHCR, etc.).
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag ticketdesk:${{ github.sha }} \
+            --tag ticketdesk:latest \
+            .
