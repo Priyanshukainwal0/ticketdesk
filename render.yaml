@@ -1,0 +1,11 @@
+# Render deployment config — https://render.com/docs/render-yaml-spec
+services:
+  - type: web
+    name: ticketdesk
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DB_PATH
+        value: /tmp/ticketdesk.db
+    plan: free
