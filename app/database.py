@@ -42,8 +42,12 @@ def get_database_url() -> str:
     """
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
-        # Render supplies postgres:// URLs; SQLAlchemy needs postgresql://
-        return db_url.replace("postgres://", "postgresql://", 1)
+        # Render supplies postgres:// or postgresql:// URLs.
+        # SQLAlchemy + psycopg3 needs the postgresql+psycopg:// dialect prefix.
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+        if not db_url.startswith("postgresql+"):
+            db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return db_url
     db_path = os.environ.get("DB_PATH", "ticketdesk.db")
     return f"sqlite:///{db_path}"
 
