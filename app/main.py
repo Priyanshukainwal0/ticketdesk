@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
+from sqlalchemy import text
 
 from app.database import db_conn, init_db
 from app.models import Priority, Status, TicketCreate, TicketOut, TicketUpdate
@@ -35,23 +36,22 @@ from app.models import Priority, Status, TicketCreate, TicketOut, TicketUpdate
 # Paths
 # ---------------------------------------------------------------------------
 
-# __file__ is app/main.py → parent is app/ → static/ lives next to it.
 _STATIC_DIR = pathlib.Path(__file__).parent / "static"
 
 
 # ---------------------------------------------------------------------------
-# Lifespan (replaces deprecated @app.on_event)
+# Lifespan
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run init_db() once on startup; nothing to tear down on shutdown."""
+    """Create the DB table on startup if it doesn't exist yet."""
     init_db()
     yield
 
 
 # ---------------------------------------------------------------------------
-# App instance
+# App
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
@@ -61,13 +61,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Serve static assets (CSS, JS, images) at /static/…
-# The web console itself is at "/" via the route below.
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
-# ── Prometheus metrics (/metrics) ──────────────────────────────────────────
-# Automatically tracks: request count, latency, in-flight requests per endpoint.
-# Prometheus scrapes this endpoint on a schedule; Grafana reads from Prometheus.
+# Prometheus metrics exposed at /metrics
 Instrumentator().instrument(app).expose(app)
 
 
@@ -77,10 +73,7 @@ Instrumentator().instrument(app).expose(app)
 
 @app.get("/health", tags=["ops"], summary="Liveness probe")
 def health():
-    """
-    Returns {"status": "ok"}.
-    Used by Docker HEALTHCHECK, k8s liveness probes, and uptime monitors.
-    """
+    """Returns {"status": "ok"} — used by Docker HEALTHCHECK and cloud probes."""
     return {"status": "ok"}
 
 
@@ -90,170 +83,132 @@ def health():
 
 @app.get("/", include_in_schema=False)
 def index():
-    """Serve the single-page web console (app/static/index.html)."""
     return FileResponse(_STATIC_DIR / "index.html")
 
 
 # ---------------------------------------------------------------------------
-# Tickets — helpers
+# Helpers
 # ---------------------------------------------------------------------------
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 
 def _row_to_ticket(ticket_id: int) -> TicketOut:
     """
-    Fetch one row by id and return a TicketOut model.
-    Raises 404 if not found.
-    Called after INSERT/UPDATE to ensure the caller always gets fresh data.
+    Fetch a single ticket by id and return a TicketOut model.
+    Opens its own connection so it always reads committed data.
     """
     with db_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM tickets WHERE id = ?", (ticket_id,)
-        ).fetchone()
+            text("SELECT * FROM tickets WHERE id = :id"),
+            {"id": ticket_id},
+        ).mappings().fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found.")
     return TicketOut(**dict(row))
 
 
-def _now_iso() -> str:
-    """Current UTC time as an ISO-8601 string (what we store in SQLite TEXT)."""
-    return datetime.now(timezone.utc).isoformat()
-
-
 # ---------------------------------------------------------------------------
-# Tickets — CRUD endpoints
+# Tickets — CRUD
 # ---------------------------------------------------------------------------
 
-@app.post(
-    "/api/tickets",
-    response_model=TicketOut,
-    status_code=201,
-    tags=["tickets"],
-    summary="Create a ticket",
-)
+@app.post("/api/tickets", response_model=TicketOut, status_code=201, tags=["tickets"])
 def create_ticket(ticket: TicketCreate):
     """
-    Create a new ticket.  Status is always 'open' on creation.
-    Returns the full ticket including auto-assigned id and timestamps.
+    Create a new ticket. Status is always 'open' on creation.
+    Uses RETURNING id so the same SQL works on both SQLite and PostgreSQL.
     """
     now = _now_iso()
     with db_conn() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO tickets
-                (title, description, requester, assignee, priority, status, created_at, updated_at)
-            VALUES
-                (?, ?, ?, ?, ?, 'open', ?, ?)
-            """,
-            (
-                ticket.title,
-                ticket.description,
-                ticket.requester,
-                ticket.assignee,
-                ticket.priority.value,   # store enum as plain string
-                now,
-                now,
-            ),
+        result = conn.execute(
+            text("""
+                INSERT INTO tickets
+                    (title, description, requester, assignee, priority, status, created_at, updated_at)
+                VALUES
+                    (:title, :desc, :requester, :assignee, :priority, 'open', :now, :now)
+                RETURNING id
+            """),
+            {
+                "title":    ticket.title,
+                "desc":     ticket.description,
+                "requester": ticket.requester,
+                "assignee": ticket.assignee,
+                "priority": ticket.priority.value,
+                "now":      now,
+            },
         )
-        new_id = cursor.lastrowid
-    # Fetch *after* the connection closes and the INSERT is committed.
-    # (Reading inside the same connection before commit can return stale data
-    # in WAL mode when other connections are involved.)
+        new_id = result.fetchone()[0]
+    # Fetch after commit so the response always reflects the persisted row
     return _row_to_ticket(new_id)
 
 
-@app.get(
-    "/api/tickets",
-    response_model=List[TicketOut],
-    tags=["tickets"],
-    summary="List tickets",
-)
+@app.get("/api/tickets", response_model=List[TicketOut], tags=["tickets"])
 def list_tickets(
-    status: Optional[Status] = Query(
-        default=None,
-        description="Filter by status.  Omit to return all tickets.",
-    )
+    status: Optional[Status] = Query(default=None, description="Filter by status.")
 ):
-    """Return tickets ordered newest-first (highest id first)."""
+    """Return tickets ordered newest-first. Optionally filter by status."""
     with db_conn() as conn:
         if status is not None:
             rows = conn.execute(
-                "SELECT * FROM tickets WHERE status = ? ORDER BY id DESC",
-                (status.value,),
-            ).fetchall()
+                text("SELECT * FROM tickets WHERE status = :status ORDER BY id DESC"),
+                {"status": status.value},
+            ).mappings().fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM tickets ORDER BY id DESC"
-            ).fetchall()
+                text("SELECT * FROM tickets ORDER BY id DESC")
+            ).mappings().fetchall()
     return [TicketOut(**dict(r)) for r in rows]
 
 
-@app.get(
-    "/api/tickets/{ticket_id}",
-    response_model=TicketOut,
-    tags=["tickets"],
-    summary="Get one ticket",
-)
+@app.get("/api/tickets/{ticket_id}", response_model=TicketOut, tags=["tickets"])
 def get_ticket(ticket_id: int):
-    """Fetch a single ticket by id.  Returns 404 if it doesn't exist."""
+    """Fetch a single ticket by id. Returns 404 if it doesn't exist."""
     return _row_to_ticket(ticket_id)
 
 
-@app.patch(
-    "/api/tickets/{ticket_id}",
-    response_model=TicketOut,
-    tags=["tickets"],
-    summary="Update a ticket",
-)
+@app.patch("/api/tickets/{ticket_id}", response_model=TicketOut, tags=["tickets"])
 def update_ticket(ticket_id: int, update: TicketUpdate):
     """
-    Partially update a ticket.  Send only the fields you want to change.
-    Valid fields: status, priority, assignee.
-    Returns 422 if the body is empty; 404 if the ticket doesn't exist.
+    Partially update a ticket (status, priority, assignee).
+    Returns 422 if body is empty; 404 if the ticket doesn't exist.
     """
-    # model_dump(exclude_none=True) skips fields the caller didn't send
-    raw: dict = update.model_dump(exclude_none=True)
+    raw = update.model_dump(exclude_none=True)
     if not raw:
         raise HTTPException(
             status_code=422,
-            detail="Provide at least one field to update (status, priority, or assignee).",
+            detail="Provide at least one field: status, priority, or assignee.",
         )
 
-    # Convert enum instances → their string values for SQL
-    fields: dict = {
+    # Convert enum values to strings for storage
+    fields = {
         k: (v.value if isinstance(v, (Status, Priority)) else v)
         for k, v in raw.items()
     }
     fields["updated_at"] = _now_iso()
 
-    # Build "col1 = ?, col2 = ?" dynamically from whatever was sent
-    set_clause = ", ".join(f"{col} = ?" for col in fields)
-    values = list(fields.values()) + [ticket_id]
+    # Build SET clause: "col1 = :col1, col2 = :col2"
+    set_clause = ", ".join(f"{col} = :{col}" for col in fields)
+    fields["ticket_id"] = ticket_id
 
     with db_conn() as conn:
         result = conn.execute(
-            f"UPDATE tickets SET {set_clause} WHERE id = ?", values
+            text(f"UPDATE tickets SET {set_clause} WHERE id = :ticket_id"),
+            fields,
         )
         if result.rowcount == 0:
-            # No rows changed → ticket doesn't exist
             raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found.")
 
     return _row_to_ticket(ticket_id)
 
 
-@app.delete(
-    "/api/tickets/{ticket_id}",
-    status_code=204,
-    tags=["tickets"],
-    summary="Delete a ticket",
-)
+@app.delete("/api/tickets/{ticket_id}", status_code=204, tags=["tickets"])
 def delete_ticket(ticket_id: int):
-    """
-    Permanently delete a ticket.
-    Returns 204 No Content on success; 404 if it doesn't exist.
-    """
+    """Permanently delete a ticket. Returns 204 on success; 404 if not found."""
     with db_conn() as conn:
         result = conn.execute(
-            "DELETE FROM tickets WHERE id = ?", (ticket_id,)
+            text("DELETE FROM tickets WHERE id = :id"),
+            {"id": ticket_id},
         )
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found.")
-    # 204 — return nothing

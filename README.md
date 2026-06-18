@@ -145,7 +145,7 @@ no shared state, no teardown required.
 - [x] **Phase 3** — Deployed live → https://ticketdesk-f0l0.onrender.com
 - [x] **Phase 4** — Terraform IaC (AWS EC2 + security group — code ready in `terraform/`)
 - [x] **Phase 5** — Monitoring: `/metrics` (Prometheus) + Grafana stack (`docker-compose.monitoring.yml`)
-- [ ] **Phase 6** — Migrate storage to PostgreSQL (single env-var change)
+- [x] **Phase 6** — PostgreSQL via SQLAlchemy (single env-var swap, SQLite kept for tests)
 
 ---
 

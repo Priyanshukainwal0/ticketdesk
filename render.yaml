@@ -1,4 +1,5 @@
-# Render deployment config — https://render.com/docs/render-yaml-spec
+# render.yaml - provisions web service + free PostgreSQL, wires DATABASE_URL automatically
+
 services:
   - type: web
     name: ticketdesk
@@ -6,6 +7,12 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: DB_PATH
-        value: /tmp/ticketdesk.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ticketdesk-db
+          property: connectionString
+    plan: free
+
+databases:
+  - name: ticketdesk-db
     plan: free
