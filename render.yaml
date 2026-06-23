@@ -7,4 +7,4 @@ services:
     plan: free
     envVars:
       - key: DATABASE_URL
-        value: postgresql://neondb_owner:npg_y6Jw7jRBPHaI@ep-soft-term-atoevl56-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require
+        value: postgresql://neondb_owner:npg_y6Jw7jRBPHaI@ep-soft-term-atoevl56.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require
