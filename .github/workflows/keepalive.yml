@@ -1,0 +1,18 @@
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping TicketDesk health endpoint
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ticketdesk-app.onrender.com/health)
+          echo "TicketDesk health status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Warning: TicketDesk returned $STATUS"
+          fi
