@@ -221,3 +221,94 @@ def test_delete(client):
 
 def test_delete_nonexistent_404(client):
     assert client.delete("/api/tickets/9999").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AI triage
+# ---------------------------------------------------------------------------
+
+def _triage_payload(**overrides) -> dict:
+    """Valid triage body with sensible defaults."""
+    return {
+        "category":           "printing",
+        "priority":           "medium",
+        "confidence":         0.92,
+        "summary":            "Printer jams on every job.",
+        "suggested_response": "Hi Alice, please try clearing tray 2 and reseating the toner.",
+        **overrides,
+    }
+
+
+def test_new_ticket_has_no_triage_fields(client):
+    """A freshly created ticket is untriaged: every AI field is null."""
+    t = _make(client)
+    assert t["category"] is None
+    assert t["ai_confidence"] is None
+    assert t["ai_summary"] is None
+    assert t["suggested_response"] is None
+    assert t["triaged_at"] is None
+
+
+def test_triage_writes_all_fields(client):
+    t = _make(client, priority="low")
+    res = client.patch(f"/api/tickets/{t['id']}/triage", json=_triage_payload())
+    assert res.status_code == 200, res.text
+    body = res.json()
+
+    assert body["category"] == "printing"
+    assert body["priority"] == "medium"          # triage overrode 'low'
+    assert body["ai_confidence"] == 0.92
+    assert body["ai_summary"] == "Printer jams on every job."
+    assert body["suggested_response"].startswith("Hi Alice")
+    assert body["triaged_at"] is not None
+
+
+def test_untriaged_filter_is_a_work_queue(client):
+    """untriaged=true returns only unprocessed tickets, and shrinks as they're done."""
+    a = _make(client, title="Ticket A")
+    b = _make(client, title="Ticket B")
+
+    ids = {t["id"] for t in client.get("/api/tickets?untriaged=true").json()}
+    assert ids == {a["id"], b["id"]}
+
+    client.patch(f"/api/tickets/{a['id']}/triage", json=_triage_payload())
+
+    remaining = client.get("/api/tickets?untriaged=true").json()
+    assert [t["id"] for t in remaining] == [b["id"]]
+
+
+def test_triage_is_idempotent_via_queue(client):
+    """Re-polling the queue never returns an already-triaged ticket."""
+    t = _make(client)
+    client.patch(f"/api/tickets/{t['id']}/triage", json=_triage_payload())
+    assert client.get("/api/tickets?untriaged=true").json() == []
+
+
+def test_triage_rejects_bad_category(client):
+    t = _make(client)
+    res = client.patch(
+        f"/api/tickets/{t['id']}/triage",
+        json=_triage_payload(category="teleportation"),
+    )
+    assert res.status_code == 422
+
+
+def test_triage_rejects_out_of_range_confidence(client):
+    t = _make(client)
+    for bad in (-0.1, 1.5):
+        res = client.patch(
+            f"/api/tickets/{t['id']}/triage",
+            json=_triage_payload(confidence=bad),
+        )
+        assert res.status_code == 422, f"confidence={bad} should be rejected"
+
+
+def test_triage_nonexistent_404(client):
+    res = client.patch("/api/tickets/9999/triage", json=_triage_payload())
+    assert res.status_code == 404
+
+
+def test_list_limit_is_respected(client):
+    for i in range(5):
+        _make(client, title=f"Ticket {i}")
+    assert len(client.get("/api/tickets?limit=3").json()) == 3
