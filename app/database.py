@@ -87,6 +87,56 @@ def _create_table_sql(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Migrations
+# ---------------------------------------------------------------------------
+
+# Columns added after the original schema shipped. Adding a new one here is
+# all that's needed — _migrate() adds whatever is missing on the next startup.
+_ADDED_COLUMNS: dict[str, str] = {
+    "category":           "TEXT",
+    "ai_confidence":      "REAL",
+    "ai_summary":         "TEXT",
+    "suggested_response": "TEXT",
+    "triaged_at":         "TEXT",
+}
+
+
+def _existing_columns(conn: Connection, url: str) -> set[str]:
+    """
+    Return the column names currently on the tickets table.
+
+    SQLite and PostgreSQL disagree on how to introspect a table, and SQLite
+    has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS, so we check first.
+    """
+    if url.startswith("postgresql"):
+        rows = conn.execute(
+            text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'tickets'
+            """)
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    rows = conn.execute(text("PRAGMA table_info(tickets)")).fetchall()
+    # PRAGMA returns (cid, name, type, notnull, dflt_value, pk)
+    return {r[1] for r in rows}
+
+
+def _migrate(conn: Connection, url: str) -> None:
+    """
+    Add any columns in _ADDED_COLUMNS that aren't on the table yet.
+
+    Idempotent: safe to run on every startup, and safe against a database
+    that already has some of the columns but not others.
+    """
+    present = _existing_columns(conn, url)
+    for column, col_type in _ADDED_COLUMNS.items():
+        if column not in present:
+            conn.execute(text(f"ALTER TABLE tickets ADD COLUMN {column} {col_type}"))
+
+
+# ---------------------------------------------------------------------------
 # Connection context manager
 # ---------------------------------------------------------------------------
 
@@ -123,10 +173,14 @@ def db_conn():
 # ---------------------------------------------------------------------------
 
 def init_db() -> None:
-    """Create the tickets table if it doesn't exist. Called once on startup."""
+    """
+    Create the tickets table if it doesn't exist, then apply any pending
+    column migrations. Called once on startup.
+    """
     url = get_database_url()
     engine = create_engine(url, echo=False)
     with engine.connect() as conn:
         conn.execute(text(_create_table_sql(url)))
+        _migrate(conn, url)
         conn.commit()
     engine.dispose()
